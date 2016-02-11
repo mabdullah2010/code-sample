@@ -1,0 +1,10 @@
+name = HA Core
+core = 7.x
+version = 7.x-1.0
+description = HA Core custom code to implement core business logic and architecture of HA Lighting.
+
+dependencies[] = entity
+
+files[] = includes/ha_core_note.controller.inc
+files[] = includes/ha_core_note.inline_entity_form.inc
+

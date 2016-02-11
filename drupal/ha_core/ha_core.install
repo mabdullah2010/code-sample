@@ -1,0 +1,149 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for the ha_core module.
+ */
+
+/**
+ * Helper function. Generates message for the success or failure of enabling a module
+ */
+function _print_enabled($module, $success) {
+  if ($success) {
+    drupal_set_message(t("!module enabled", array('!module' => $module)), 'status');
+  }
+  else {
+    drupal_set_message(t("!module NOT enabled", array('!module' => $module)), 'error');
+  }
+}
+
+/**
+ * Implements hook_enable()
+ */
+function ha_core_enable() {
+  // Modules to enable
+  $theme = 'ha_lighting';
+  $main_modules = array('features', 'ha_backend', 'ha_public_pages', 'ha_backend_ui');
+  $dev_modules = array('rules_admin', 'views_ui', 'devel');
+
+  // Enable main theme and set it as default
+  theme_enable(array($theme));
+  variable_set('theme_default', $theme);
+  _print_enabled($theme, TRUE);
+
+  // Disable the original theme
+  theme_disable(array('bartik'));
+
+  // Enable the site's main modules
+  foreach ($main_modules as $module) {
+    $success = module_enable(array($module));
+    _print_enabled($module, $success);
+  }
+
+  // Get the variable ha_backend_prod indicating if this is a production system.
+  // Initialize it to 0, if it was empty.
+  $prod = variable_get('ha_backend_prod', 0);
+
+  // Enable the dev modules only if not on production
+  if (!$prod) {
+    foreach ($dev_modules as $module) {
+      $success = module_enable(array($module));
+      _print_enabled($module, $success);
+    }
+  }
+
+  // Hacky, but need to ensure feature is not immediately overridden
+  // upon site install
+  features_revert(array('ha_public_pages' => array('variable')));
+}
+
+/**
+ * Implements hook_schema().
+ */
+function ha_core_schema() {
+  $schema = array();
+
+  // Database table definition for Note entity type
+  $schema['ha_core_note'] = array(
+    'description' => 'The base table for notes.',
+    'fields' => array(
+      'id' => array(
+        'description' => 'The primary identifier for a note.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'uid' => array(
+        'description' => 'ID of Drupal user creator.',
+        'type' => 'int',
+        'not null' => TRUE,
+      ),
+      'body' => array(
+        'description' => 'The text body of a note.',
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => FALSE,
+        'default' => NULL,
+      ),
+      'date' => array(
+        'description' => 'The last modified date of a note.',
+        'type' => 'int',
+        'not null' => FALSE,
+      ),
+    ),
+    'primary key' => array('id'),
+  );
+
+  return $schema;
+}
+
+/**
+ * Implements hook_update_N()
+ *
+ * Create new database table ha_core_note.
+ */
+function ha_core_update_7101() {
+  // Database table definition for Note entity type
+  $schema['ha_core_note'] = array(
+    'description' => 'The base table for notes.',
+    'fields' => array(
+      'id' => array(
+        'description' => 'The primary identifier for a note.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'body' => array(
+        'description' => 'The text body of a note.',
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => FALSE,
+        'default' => NULL,
+      ),
+      'date' => array(
+        'description' => 'The last modified date of a note.',
+        'type' => 'int',
+        'not null' => FALSE,
+      ),
+    ),
+    'primary key' => array('id'),
+  );
+
+  db_create_table('ha_core_note', $schema['ha_core_note']);
+}
+
+/**
+ * Implements hook_update_N()
+ *
+ * Add uid field to ha_core_note table.
+ */
+function ha_core_update_7102() {
+  $uid = array(
+    'description' => 'ID of Drupal user creator.',
+    'type' => 'int',
+    'not null' => TRUE,
+  );
+
+  db_add_field( 'ha_core_note', 'uid', $uid);
+}
+
