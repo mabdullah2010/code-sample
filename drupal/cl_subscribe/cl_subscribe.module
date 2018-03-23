@@ -1,0 +1,350 @@
+<?php
+
+/**
+ * Implements hook_menu().
+ */
+function cl_subscribe_menu() {
+  $items['getemails'] = array(
+    'title' => 'Get Sitename Direct',
+    'description' => 'Email form to sign up for Sitename Direct.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('cl_subscribe_cl_direct_form'),
+    'access arguments' => array('access content'),
+  );
+
+  $items['admin/config/cl-subscription'] = array(
+    'title' => 'Subscription Settings',
+    'description' => 'Provide custom values to the Sitename Direct form.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('cl_subscribe_cl_direct_settings_form'),
+    'access arguments' => array('manage cl_subscribe_cl_direct_settings'),
+  );
+
+  return $items;
+}
+
+/**
+ * Page callback: Custom settings form
+ */
+function cl_subscribe_cl_direct_form($form, &$form_state) {
+  // Include file to get country list
+  include_once DRUPAL_ROOT . '/includes/locale.inc';
+  // Include file to get state/province lists
+  include_once 'cl_subscribe.locale.inc';
+
+  // Use to detect if US or Canada are selected as the country
+  $country_US_or_CA = array(
+    ':input[name="cl_direct_country"]' => array(
+      array('value' => 'CA'),
+      array('value' => 'US'),
+    ),
+  );
+
+  // Grab defaults in case they have not yet been set in configuration
+  $defaults = _cl_subscribe_get_cl_direct_defaults();
+  $custom = array(
+    'cl_direct_header' => variable_get('cl_direct_header', $defaults['cl_direct_header']),
+    'cl_direct_footer' => variable_get('cl_direct_footer', $defaults['cl_direct_footer']),
+  );
+
+//dpm($custom);
+  $form['cl_direct_header'] = array(
+    '#markup' => $custom['cl_direct_header']['value'],
+  );
+  $form['cl_direct_first_name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('First Name'),
+    '#required' => TRUE,
+    '#size' => 30,
+    '#maxlength' => 50,
+  );
+  $form['cl_direct_last_name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Last Name'),
+    '#required' => TRUE,
+    '#size' => 30,
+    '#maxlength' => 50,
+  );
+  $form['cl_direct_email_address'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Email Address'),
+    '#required' => TRUE,
+    '#size' => 30,
+    '#maxlength' => 50,
+  );
+  $form['cl_direct_organization'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Organization'),
+    '#required' => FALSE,
+    '#size' => 30,
+    '#maxlength' => 50,
+  );
+  $form['cl_direct_country'] = array(
+    '#type' => 'select',
+    '#title' => t('Country'),
+    '#options' => country_get_list(),
+    '#required' => TRUE,
+    // Bind callback to update states list when country changed
+    '#ajax' => array(
+      'callback' => 'cl_subscribe_country_change_callback',
+      'wrapper' => 'cl-direct-state',
+      'progress' => array('type' => 'none'),
+    ),
+  );
+  $form['cl_direct_street'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Street'),
+    '#required' => FALSE,
+    '#size' => 30,
+    '#maxlength' => 50,
+    '#states' => array(
+      'visible' => $country_US_or_CA,
+    ),
+  );
+  $form['cl_direct_city'] = array(
+    '#type' => 'textfield',
+    '#title' => t('City'),
+    '#required' => FALSE,
+    '#size' => 30,
+    '#maxlength' => 50,
+    '#states' => array(
+      'visible' => $country_US_or_CA,
+    ),
+  );
+  $form['cl_direct_state'] = array(
+    '#type' => 'select',
+    '#title' => t('State'),
+    '#required' => FALSE,
+
+    // Options set from ajax callback by country being selected
+    '#options' => _cl_subscribe_state_options(_cl_subscribe_get_current_country_key($form_state)),
+
+    // Do not display this element initially
+    '#title_display' => 'invisible',
+    '#attributes' => array(
+      'style' => 'display: none',
+    ),
+
+    // The entire enclosing div created here gets replaced by ajax callback when country is selected
+    '#prefix' => '<div id="cl-direct-state" class="form-group">',
+    '#suffix' => '</div>',
+  );
+  $form['cl_direct_zipcode'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Zip'),
+    '#required' => FALSE,
+    '#size' => 30,
+    '#maxlength' => 50,
+    '#states' => array(
+      'visible' => $country_US_or_CA,
+      'required' => $country_US_or_CA,
+    ),
+    '#element_validate' => array(
+      0 => 'cl_subscribe_validate_zipcode',
+    ),
+  );
+  $form['cl_direct_cell_number'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Cell Phone'),
+    '#required' => FALSE,
+    '#size' => 30,
+    '#maxlength' => 20,
+  );
+  $form['cl_direct_subscriptions'] = array(
+    '#type' => 'checkboxes',
+    '#title' => t('Subscriptions'),
+    '#options' => array(
+      'cl_weekly' => t("<b>Sitename Direct Weekly</b> - Text about the weekly newsletter."),
+      'rf_monthly' => t('<b>Sitename Toolbox Monthly</b> - Text about the monthly newsletter.'),
+      'fr_updates' => t('<b>Sitename Updates</b> - Text about periodic newsletter'),
+    ),
+
+    // Select them all by default
+    '#default_value' => array('cl_weekly', 'rf_monthly', 'fr_updates'),
+  );
+  $form['cl_direct_lead_source'] = array(
+    '#type' => 'hidden',
+    '#value' => 'Sitename get emails web form',
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => 'Submit',
+  );
+
+  $form['cl_direct_footer'] = array(
+    '#markup' => $custom['cl_direct_footer']['value'],
+  );
+
+  return $form;
+}
+
+/**
+ * Validation handler for zipcode since it's required if visible
+ */
+function cl_subscribe_validate_zipcode($element, $form_state) {
+  // Enforce zipcode requirement if current country collects full address
+  if (_cl_subscribe_is_country_with_address($form_state)) {
+    // TODO: improve zipcode validation
+    if ($form_state['values'][$element['#name']] == '') {
+      form_set_error($element['#name'], $element['#title'] . ' is required.');
+    }
+  }
+}
+
+/**
+ * Validation handler for cl_subscribe_cl_direct_form
+ */
+function cl_subscribe_cl_direct_form_validate($form, &$form_state) {
+  // TODO: validation beyond default check of fields not being empty
+}
+
+/**
+ * Submit handler for cl_subscribe_cl_direct_form
+ */
+function cl_subscribe_cl_direct_form_submit($form, &$form_state) {
+  // Gather and normalize checkbox values
+  $subscription_values = array();
+  foreach ($form_state['values']['cl_direct_subscriptions'] as $subscription => $value) {
+    $subscription_values[$subscription] = $value ? 'true' : 'false';
+  }
+
+  // Setup post to Act-On
+  $post1 = new ActonConnection;
+  $post1->setPostItems('First Name', $form_state['values']['cl_direct_first_name']);
+  $post1->setPostItems('Last Name', $form_state['values']['cl_direct_last_name']);
+  $post1->setPostItems('Email', $form_state['values']['cl_direct_email_address']);
+  $post1->setPostItems('Company', $form_state['values']['cl_direct_organization']);
+  $post1->setPostItems('Business Country', $form_state['values']['cl_direct_country']);
+  $post1->setPostItems('Business City', $form_state['values']['cl_direct_city']);
+  $post1->setPostItems('Business State', $form_state['values']['cl_direct_state']);
+  $post1->setPostItems('Business Postal Code', $form_state['values']['cl_direct_zipcode']);
+  $post1->setPostItems('Cell Phone', $form_state['values']['cl_direct_cell_number']);
+  $post1->setPostItems('Subscription Sitename', $subscription_values['cl_weekly']);
+  $post1->setPostItems('Subscription ARC', $subscription_values['rf_monthly']);
+  $post1->setPostItems('Subscription Sitename', $subscription_values['fr_updates']);
+  $post1->setPostItems('Lead Source', $form_state['values']['cl_direct_lead_source']);
+
+  // Post to Act-On url
+  $post1->processConnection('https://actonsoftware.com/acton/eform/xxx');
+
+  drupal_set_message("Thanks for submitting!");
+}
+
+/**
+ * Selects the state dropdown to be returned for re-rendering
+ */
+function cl_subscribe_country_change_callback($form, $form_state) {
+  // Show/hide state dropdown based on country
+  if (_cl_subscribe_is_country_with_address($form_state)) {
+    unset($form['cl_direct_state']['#attributes']['style']);
+    $form['cl_direct_state']['#title_display'] = 'before';
+  }
+  else {
+    $form['cl_direct_state']['#attributes']['style'] = 'display: none';
+    $form['cl_direct_state']['#title_display'] = 'invisible';
+  }
+
+  return $form['cl_direct_state'];
+}
+
+/**
+ * Page callback: Sitename custom settings form
+ */
+function cl_subscribe_cl_direct_settings_form($form, &$form_state) {
+  $defaults = _cl_subscribe_get_cl_direct_defaults();
+  $custom = array(
+    'cl_direct_header' => variable_get('cl_direct_header', $defaults['cl_direct_header']),
+    'cl_direct_footer' => variable_get('cl_direct_footer', $defaults['cl_direct_footer']),
+  );
+  $form = array();
+
+  $form['cl_direct_header'] = array(
+    '#type' => 'text_format',
+    '#title' => t('Header Markup'),
+    '#description' => t('Markup to display above the form fields.'),
+    '#required' => TRUE,
+    '#size' => 50,
+    '#maxlength' => 1500,
+    '#default_value' => $custom['cl_direct_header']['value'],
+  );
+
+  $form['cl_direct_footer'] = array(
+    '#type' => 'text_format',
+    '#title' => t('Footer Markup'),
+    '#description' => t('Markup to display below the form fields.'),
+    '#required' => TRUE,
+    '#size' => 50,
+    '#maxlength' => 1500,
+    '#default_value' => $custom['cl_direct_footer']['value'],
+  );
+
+  return system_settings_form($form);
+}
+
+/**
+ * Implements hook_permission().
+ */
+function cl_subscribe_permission() {
+  return array(
+    'manage cl_subscribe_cl_direct_settings' =>  array(
+      'title' => t('Manage Sitename Settings'),
+    ),
+  );
+}
+
+/**
+ * Return true if selected country allows user to enter full address,
+ * and return false otherwise
+ */
+function _cl_subscribe_is_country_with_address($form_state) {
+  $country = _cl_subscribe_get_current_country_key($form_state);
+  return in_array($country, array('US', 'CA'));
+}
+
+/**
+ * Return 2-letter country key if value is set, else empty string
+ */
+function _cl_subscribe_get_current_country_key($form_state) {
+  return isset($form_state['values']['cl_direct_country']) ? $form_state['values']['cl_direct_country'] : '';
+}
+
+/**
+ * Return states based on selected country
+ */
+function _cl_subscribe_state_options($key = '') {
+  $states = array();
+
+  switch ($key) {
+    case 'US':
+      $states = _cl_subscribe_states_get_list();
+      break;
+    case 'CA':
+      $states = _cl_subscribe_provinces_get_list();
+      break;
+  }
+
+  return $states;
+}
+
+/**
+ * Return default form values. Made it a function to keep default markup in a single place
+ * without it having to be a global variable.
+ */
+function _cl_subscribe_get_cl_direct_defaults() {
+  // Default header markup
+  $header = '<h2>' . t('Sign up for Sitename Direct today!') . '</h2>';
+  $header .= '<p>' . t("<b>It's free and it's fast.</b>") . '</p>';
+  $header .= '<p>' . t('Fill out the short form below to receive the Sitename monthly newsletter. You can also check the options below to receive Sitename Direct Weekly from our award-winning daily news site, and updates on our upcoming Sitename conference!') . '</p>';
+
+  // Default footer markup
+  $footer = '<p>' . t('<small>(Click to read our <a href="@privacy-page">privacy policy</a>)</small>', array('@privacy-page' => url('privacy'))) . '</p>';
+
+  return array(
+    'cl_direct_header' => array(
+      'value' => $header,
+    ),
+    'cl_direct_footer' => array(
+      'value' => $footer,
+    ),
+  );
+}

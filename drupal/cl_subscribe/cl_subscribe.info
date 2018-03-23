@@ -1,0 +1,6 @@
+name = Sitename Subscribe
+description = Pages for subscribing to Sitename
+core = 7.x
+package = Sitename
+
+files[] = cl_subscribe.acton.inc
